@@ -1,0 +1,118 @@
+services:
+  postgres:
+    image: postgres:17
+    env_file: .env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    env_file: .env
+    ports:
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Development container for tests and tooling; it does nothing on its own.
+  app:
+    build:
+      context: .
+      target: dev
+    env_file: .env
+    environment:
+      UV_PROJECT_ENVIRONMENT: /opt/venv
+      RABBITMQ_MANAGEMENT_URL: ${RABBITMQ_MANAGEMENT_URL:-http://rabbitmq:15672}
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: ["sleep", "infinity"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  migrate:
+    build:
+      context: .
+      target: runtime
+    env_file: .env
+    command: ["alembic", "upgrade", "head"]
+    # Development only: remove the bind mount for production.
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      target: runtime
+    env_file: .env
+    # Development only: remove --reload and the bind mount for production.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    volumes:
+      - .:/app
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  consumer:
+    build:
+      context: .
+      target: runtime
+    env_file: .env
+    # Development only: remove --reload and the bind mount for production.
+    command: ["faststream", "run", "app.consumer:app", "--reload"]
+    restart: unless-stopped
+    volumes:
+      - .:/app
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os, sys, time; sys.exit(0 if time.time() - os.path.getmtime('/tmp/outbox_heartbeat') < 30 else 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres_data:

@@ -1,0 +1,57 @@
+[project]
+name = "payments"
+version = "0.1.0"
+description = "Asynchronous payment processing service"
+requires-python = ">=3.13"
+dependencies = [
+    "alembic>=1.14,<2",
+    "aio-pika>=9,<11",
+    "asyncpg>=0.30,<1",
+    "fastapi>=0.120,<1",
+    "faststream[cli,rabbit]>=0.6,<1",
+    "httpx>=0.28,<1",
+    "pydantic>=2.11,<3",
+    "pydantic-settings>=2.8,<3",
+    "sqlalchemy[asyncio]>=2,<3",
+    "uvicorn[standard]>=0.34,<1",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.15,<2",
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.25,<2",
+    "ruff>=0.11,<1",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.format]
+exclude = ["migrations/**"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"migrations/versions/*.py" = ["E501", "I001"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+mypy_path = "."
+packages = ["app"]
+exclude = ["tests/"]
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "unit: isolated unit tests that do not require PostgreSQL or RabbitMQ",
+    "e2e: end-to-end tests using real PostgreSQL and RabbitMQ",
+]
